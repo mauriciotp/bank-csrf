@@ -23,8 +23,8 @@ type Account struct {
 }
 
 type Category struct {
-	ID   int32  `json:"id"`
-	Name string `json:"name"`
+	ID           int32  `json:"id"`
+	CategoryName string `json:"category_name"`
 }
 
 type LegalEntity struct {

@@ -8,85 +8,178 @@ package pgstore
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createLegalEntity = `-- name: CreateLegalEntity :one
-INSERT INTO legal_entities (
-  trade_name,
-  age,
-  corporate_email,
-  revenue
+const closeAccount = `-- name: CloseAccount :one
+UPDATE accounts
+SET closed_at = NOW()
+WHERE id = $1 AND closed_at IS NULL AND balance = 0
+RETURNING id, closed_at
+`
+
+type CloseAccountRow struct {
+	ID       uuid.UUID          `json:"id"`
+	ClosedAt pgtype.Timestamptz `json:"closed_at"`
+}
+
+func (q *Queries) CloseAccount(ctx context.Context, id uuid.UUID) (CloseAccountRow, error) {
+	row := q.db.QueryRow(ctx, closeAccount, id)
+	var i CloseAccountRow
+	err := row.Scan(&i.ID, &i.ClosedAt)
+	return i, err
+}
+
+const createAccount = `-- name: CreateAccount :one
+INSERT INTO accounts (
+  legal_entity_id,
+  natural_person_id,
+  mobile_phone,
+  category_id
 ) VALUES (
   $1,
   $2,
   $3,
   $4
-)
-RETURNING id, trade_name, age, revenue, corporate_email
+) RETURNING id, natural_person_id, legal_entity_id, category_id, mobile_phone, balance, created_at, closed_at
 `
 
-type CreateLegalEntityParams struct {
-	TradeName      string         `json:"trade_name"`
-	Age            int32          `json:"age"`
-	CorporateEmail string         `json:"corporate_email"`
-	Revenue        pgtype.Numeric `json:"revenue"`
+type CreateAccountParams struct {
+	LegalEntityID   pgtype.UUID `json:"legal_entity_id"`
+	NaturalPersonID pgtype.UUID `json:"natural_person_id"`
+	MobilePhone     pgtype.Text `json:"mobile_phone"`
+	CategoryID      int32       `json:"category_id"`
 }
 
-func (q *Queries) CreateLegalEntity(ctx context.Context, arg CreateLegalEntityParams) (LegalEntity, error) {
-	row := q.db.QueryRow(ctx, createLegalEntity,
-		arg.TradeName,
-		arg.Age,
-		arg.CorporateEmail,
-		arg.Revenue,
+func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (Account, error) {
+	row := q.db.QueryRow(ctx, createAccount,
+		arg.LegalEntityID,
+		arg.NaturalPersonID,
+		arg.MobilePhone,
+		arg.CategoryID,
 	)
-	var i LegalEntity
+	var i Account
 	err := row.Scan(
 		&i.ID,
-		&i.TradeName,
-		&i.Age,
-		&i.Revenue,
-		&i.CorporateEmail,
+		&i.NaturalPersonID,
+		&i.LegalEntityID,
+		&i.CategoryID,
+		&i.MobilePhone,
+		&i.Balance,
+		&i.CreatedAt,
+		&i.ClosedAt,
 	)
 	return i, err
 }
 
-const createNaturalPerson = `-- name: CreateNaturalPerson :one
-INSERT INTO natural_persons (
-  full_name,
-  age,
-  email,
-  monthly_income
-) VALUES (
-  $1,
-  $2,
-  $3,
-  $4
-)
-RETURNING id, full_name, age, monthly_income, email
+const deposit = `-- name: Deposit :one
+UPDATE accounts
+SET balance = balance + $1
+WHERE id = $2 AND closed_at IS NULL
+RETURNING id, balance
 `
 
-type CreateNaturalPersonParams struct {
-	FullName      string         `json:"full_name"`
-	Age           int32          `json:"age"`
-	Email         string         `json:"email"`
-	MonthlyIncome pgtype.Numeric `json:"monthly_income"`
+type DepositParams struct {
+	Amount pgtype.Numeric `json:"amount"`
+	ID     uuid.UUID      `json:"id"`
 }
 
-func (q *Queries) CreateNaturalPerson(ctx context.Context, arg CreateNaturalPersonParams) (NaturalPerson, error) {
-	row := q.db.QueryRow(ctx, createNaturalPerson,
-		arg.FullName,
-		arg.Age,
-		arg.Email,
-		arg.MonthlyIncome,
-	)
-	var i NaturalPerson
-	err := row.Scan(
-		&i.ID,
-		&i.FullName,
-		&i.Age,
-		&i.MonthlyIncome,
-		&i.Email,
-	)
+type DepositRow struct {
+	ID      uuid.UUID      `json:"id"`
+	Balance pgtype.Numeric `json:"balance"`
+}
+
+func (q *Queries) Deposit(ctx context.Context, arg DepositParams) (DepositRow, error) {
+	row := q.db.QueryRow(ctx, deposit, arg.Amount, arg.ID)
+	var i DepositRow
+	err := row.Scan(&i.ID, &i.Balance)
+	return i, err
+}
+
+const getAccountBalance = `-- name: GetAccountBalance :one
+SELECT
+  id,
+  balance
+FROM accounts
+WHERE id = $1 AND closed_at IS NULL
+`
+
+type GetAccountBalanceRow struct {
+	ID      uuid.UUID      `json:"id"`
+	Balance pgtype.Numeric `json:"balance"`
+}
+
+func (q *Queries) GetAccountBalance(ctx context.Context, id uuid.UUID) (GetAccountBalanceRow, error) {
+	row := q.db.QueryRow(ctx, getAccountBalance, id)
+	var i GetAccountBalanceRow
+	err := row.Scan(&i.ID, &i.Balance)
+	return i, err
+}
+
+const getCategoryByName = `-- name: GetCategoryByName :one
+SELECT id, category_name FROM categories
+WHERE category_name = $1
+`
+
+func (q *Queries) GetCategoryByName(ctx context.Context, categoryName string) (Category, error) {
+	row := q.db.QueryRow(ctx, getCategoryByName, categoryName)
+	var i Category
+	err := row.Scan(&i.ID, &i.CategoryName)
+	return i, err
+}
+
+const lockAccounts = `-- name: LockAccounts :many
+SELECT id
+FROM accounts
+WHERE id = ANY($1::uuid[])
+ORDER BY id
+FOR UPDATE
+`
+
+func (q *Queries) LockAccounts(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockAccounts, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const withdraw = `-- name: Withdraw :one
+UPDATE accounts
+SET balance = balance - $1
+WHERE
+  id = $2
+  AND closed_at IS NULL
+  AND balance >= $1
+RETURNING id, balance
+`
+
+type WithdrawParams struct {
+	Amount pgtype.Numeric `json:"amount"`
+	ID     uuid.UUID      `json:"id"`
+}
+
+type WithdrawRow struct {
+	ID      uuid.UUID      `json:"id"`
+	Balance pgtype.Numeric `json:"balance"`
+}
+
+func (q *Queries) Withdraw(ctx context.Context, arg WithdrawParams) (WithdrawRow, error) {
+	row := q.db.QueryRow(ctx, withdraw, arg.Amount, arg.ID)
+	var i WithdrawRow
+	err := row.Scan(&i.ID, &i.Balance)
 	return i, err
 }
