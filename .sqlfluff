@@ -1,6 +1,7 @@
 [sqlfluff]
 dialect = postgres
 templater = raw
+exclude_rules = AM04
 
 [sqlfluff:indentation]
 indent_unit = space
