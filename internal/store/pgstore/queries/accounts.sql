@@ -1,27 +1,28 @@
--- name: CreateNaturalPerson :one
-INSERT INTO natural_persons (
-  full_name,
-  age,
-  email,
-  monthly_income
+-- name: CreateAccount :one
+INSERT INTO accounts (
+  legal_entity_id,
+  natural_person_id,
+  balance,
+  mobile_phone,
+  category_id
 ) VALUES (
   $1,
   $2,
   $3,
-  $4
-)
-RETURNING *;
+  $4,
+  $5
+) RETURNING *;
 
--- name: CreateLegalEntity :one
-INSERT INTO legal_entities (
-  trade_name,
-  age,
-  corporate_email,
-  revenue
-) VALUES (
-  $1,
-  $2,
-  $3,
-  $4
-)
-RETURNING *;
+-- name: GetBalanceByAccount :one
+SELECT balance FROM accounts
+WHERE id = $1;
+
+-- name: UpdateBalance :one
+UPDATE accounts
+SET balance = $2
+WHERE id = $1
+RETURNING balance;
+
+-- name: CloseAccount :exec
+DELETE FROM accounts
+WHERE id = $1;

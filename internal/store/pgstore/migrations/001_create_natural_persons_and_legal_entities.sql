@@ -31,7 +31,8 @@ CREATE TABLE accounts (
   CONSTRAINT chk_unique_owner CHECK (
     (natural_person_id IS NOT NULL AND legal_entity_id IS NULL)
     OR (natural_person_id IS NULL AND legal_entity_id IS NOT NULL)
-  )
+  ),
+  CONSTRAINT chk_balance_non_negative CHECK (balance >= 0)
 );
 
 ---- create above / drop below ----
