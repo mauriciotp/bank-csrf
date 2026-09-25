@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/mauriciotp/bank-csrf/internal/api"
+	"github.com/mauriciotp/bank-csrf/internal/store/pgstore"
 )
 
 func main() {
@@ -47,12 +48,14 @@ func main() {
 		panic(err)
 	}
 
-	api := api.API{
-		Router: chi.NewMux(),
+	a := api.API{
+		Router:  chi.NewMux(),
+		Pool:    pool,
+		Queries: pgstore.New(pool),
 	}
 
 	slog.Info(fmt.Sprintf("Starting Server on port %s 🚀 ", port))
-	if err := http.ListenAndServe(fmt.Sprintf("localhost:%s", port), api.Router); err != nil {
+	if err := http.ListenAndServe(fmt.Sprintf("localhost:%s", port), a.Router); err != nil {
 		panic(err)
 	}
 }
