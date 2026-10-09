@@ -2,7 +2,9 @@ package jsonutils
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/mauriciotp/bank-csrf/internal/validator"
@@ -28,7 +30,14 @@ func DecodeJSON[T validator.Validator](w http.ResponseWriter, r *http.Request) (
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(&data); err != nil {
-		return data, nil, err
+		switch {
+		case errors.Is(err, io.EOF):
+			return data, nil, errors.New("request body cannot be empty")
+		case errors.Is(err, io.ErrUnexpectedEOF):
+			return data, nil, errors.New("request body contains malformed JSON")
+		default:
+			return data, nil, err
+		}
 	}
 
 	if problems := data.Valid(r.Context()); len(problems) > 0 {
