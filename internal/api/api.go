@@ -2,12 +2,10 @@ package api
 
 import (
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/mauriciotp/bank-csrf/internal/store/pgstore"
+	"github.com/mauriciotp/bank-csrf/internal/services"
 )
 
 type API struct {
-	Router  *chi.Mux
-	Pool    *pgxpool.Pool
-	Queries *pgstore.Queries
+	Router          *chi.Mux
+	AccountsService *services.AccountsService
 }
